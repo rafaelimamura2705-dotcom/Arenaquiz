@@ -23,6 +23,16 @@ export interface Category {
   icon: string;
   color: string;
   tag: string;
+  status?:
+    | "awaiting-questions"
+    | "queued"
+    | "researching"
+    | "validating"
+    | "ready"
+    | "error";
+  generationMessage?: string;
+  scope?: string;
+  validatedAt?: string | null;
 }
 export interface Question {
   id: string;

@@ -3469,3 +3469,13 @@ form .btn {
     transition: none !important;
   }
 }
+
+/* Nomes de categorias criadas pelo jogador podem ser longos. */
+.category-body strong,
+.play-bar strong {
+  overflow-wrap: anywhere;
+}
+.category-body,
+.play-bar > div > div {
+  min-width: 0;
+}

@@ -1,4 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
+
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/categories", (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: "Serviço de IA precisa de uma chave de API configurada." },
+    }),
+  );
+});
 import { questions } from "../src/data/demo";
 async function enterDuel(page: Page) {
   await page.goto("/#categories");
@@ -74,7 +83,7 @@ test("duelo em 1x1 exige especialista e termina em 2x1", async ({ page }) => {
   await page.getByRole("button", { name: "Ver resultado final" }).click();
   await expect(page.locator(".final-score")).toContainText("2 : 1");
 });
-test("cadastro e login simulados, avatar, busca, sugestão e filtros de ranking", async ({
+test("cadastro e login simulados, avatar, busca, criação de categoria e filtros de ranking", async ({
   page,
 }) => {
   await page.goto("/#auth");
@@ -95,14 +104,23 @@ test("cadastro e login simulados, avatar, busca, sugestão e filtros de ranking"
   ).toBeVisible();
   await page.getByLabel("Limpar busca").click();
   await expect(page.locator(".category-card")).toHaveCount(6);
-  await page.getByRole("button", { name: "Sugerir categoria" }).click();
+  await page.getByRole("button", { name: "Criar categoria" }).click();
   await page
     .getByLabel("Nome da categoria", { exact: true })
     .fill("Mitologia nórdica");
-  await page.getByRole("button", { name: "Registrar sugestão" }).click();
-  await expect(page.locator(".pending-categories")).toContainText(
-    "Pendente · IA não conectada",
-  );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Criar categoria" })
+    .click();
+  const created = page
+    .locator(".category-card")
+    .filter({ hasText: "Mitologia nórdica" });
+  await expect(created).toBeVisible();
+  await expect(created).toHaveAttribute("aria-pressed", "true");
+  await expect(created).toContainText("Geração não concluída");
+  await expect(page.locator(".category-card")).toHaveCount(7);
+  await page.reload();
+  await expect(created).toBeVisible();
   await page.getByRole("button", { name: "Meu perfil" }).click();
   await expect(
     page.getByRole("heading", { name: "Cora", exact: true }),

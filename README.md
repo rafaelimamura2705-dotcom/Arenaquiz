@@ -14,16 +14,16 @@ npm run dev
 
 O Vite usa a porta **5173** e escuta em `0.0.0.0`. Em sua máquina, abra `http://localhost:5173` no navegador. Em um ambiente remoto, encaminhe a porta **5173** para o seu computador usando o recurso de encaminhamento de portas do seu editor/plataforma; então abra o endereço informado por esse recurso. Este projeto não publica automaticamente uma URL pública.
 
-Para uma cópia local, substitua `/workspace/Arenaquiz` pelo caminho em que o repositório foi clonado. Nenhuma variável de ambiente, credencial, serviço externo ou banco de dados é necessário para esta versão.
+Para uma cópia local, substitua `/workspace/Arenaquiz` pelo caminho em que o repositório foi clonado. `npm run dev` inicia o Vite em 5173 e a API Node em 3001; o Vite encaminha `/api` para ela. As seis categorias demonstrativas não precisam de credenciais. Novos temas podem ser criados sem chave, mas a pesquisa e geração automáticas exigem a configuração abaixo.
 
 Para conferir o pacote de produção:
 
 ```bash
 npm run build
-npm run preview
+npm start
 ```
 
-A prévia de produção usa a porta **4173**. Processos de desenvolvimento precisam ser iniciados novamente após reiniciar o ambiente.
+`npm start` serve o build e a API juntos na porta **3001** (ou `PORT`). Essa é a execução indicada para hospedar a versão online. `npm run preview` continua disponível na porta 4173 apenas para a prévia estática. Processos precisam ser iniciados novamente após reiniciar o ambiente.
 
 ## Experimentar
 
@@ -49,9 +49,9 @@ Entrada, cadastro/login simulado, seleção e busca de categorias, matchmaking s
 - Empates usam extras inéditas do mesmo nível e contam para pontos e estatísticas. Se acabarem as extras, o duelo fica bloqueado, explicando a necessidade de geração validada. É possível encerrar apenas essa demonstração, **sem registrar vencedor ou resultado**; isso não define uma regra de abandono para produção.
 - O banco contém **72 questões demonstrativas**: seis categorias, quatro perguntas por nível. São exemplos editoriais com links de referência, **não um banco aprovado por validador independente**. Pode haver apenas uma extra por nível disponível para cada par.
 - Uma pergunta é marcada como vista quando aparece, mesmo sem resposta. Reservas não contam como visualização. A seleção exclui tudo que qualquer um dos dois jogadores já viu. Quando não há ao menos três inéditas em cada nível, outro duelo naquela categoria é bloqueado. Não existe fallback que repete questões.
-- Nome, avatar, IDs de questões vistas e resultados persistem em `localStorage` sob `arena-quiz-demo-v1`. Não há sincronização entre navegadores. O histórico guarda somente resultados e estatísticas; não guarda enunciados, alternativas ou gabaritos. O banco de perguntas é estático neste demo.
+- Nome, avatar, categorias criadas, IDs de questões vistas e resultados persistem em `localStorage` sob `arena-quiz-demo-v1`. Não há sincronização entre navegadores. O histórico guarda somente resultados e estatísticas; não guarda enunciados, alternativas ou gabaritos. O banco inicial é estático; questões geradas e aprovadas são armazenadas separadamente para a simulação local. O histórico de resultados continua sem enunciados ou gabaritos.
 - O duelo em andamento não persiste: recarregar interrompe a demonstração, sem criar resultado, preservando os IDs já vistos. A navegação para outras telas fica bloqueada enquanto um duelo está ativo.
-- Sugestões de categoria pedem somente o nome e ficam **pendentes nesta sessão**. Não são ativadas automaticamente. A geração de escopo, perguntas, conferência independente de fontes, deduplicação semântica e fila de prioridades são integrações futuras. A ativação real exigirá ao menos nove questões aprovadas, três por nível.
+- **Criar categoria** pede apenas o nome e adiciona a categoria imediatamente à lista, já selecionada. Ela fica salva neste navegador, pode ser buscada e permanece após recarregar. Nomes repetidos (ignorando acentos, maiúsculas e espaços extras) selecionam a categoria existente. A criação dispara automaticamente a pesquisa na versão online. O botão **Ver disponibilidade** permanece até haver pelo menos nove questões aprovadas, três por nível. A habilitação ocorre automaticamente, sem copiar perguntas de outros temas. O validador confere duplicatas semânticas no lote e nas questões já geradas. A fila de novas categorias é serial; reposição preventiva e prioridade de duelos bloqueados ainda são trabalho futuro.
 - Ranking, níveis e XP são **exemplos visuais**. Não há fórmula de XP ou elegibilidade de ranking aprovada, e os duelos não alteram esses exemplos. XP não representa dinheiro; não há pagamentos ou apostas.
 
 ## Testes e build
@@ -80,7 +80,8 @@ O Playwright inicia seu próprio Vite na porta 5173. Os testes cobrem duelos em 
 
 - `src/domain/`: tipos e funções puras de pontuação, seleção e encerramento.
 - `src/data/demo.ts`: categorias e perguntas locais; gabaritos presentes **somente porque é uma demonstração**.
-- `src/services/`: persistência e contratos de backend, matchmaking, geração e validação.
+- `src/services/`: persistência, cliente da geração e contratos de multiplayer futuro.
+- `server/`: API, fila persistente de categorias, pesquisa web e validador em chamada separada.
 - `src/components/`: ilustração SVG própria, componentes compartilhados, confirmação e arena.
 - `src/App.tsx`: navegação, orquestração e telas.
 - `src/styles.css`: identidade visual, estados interativos e breakpoints.
@@ -96,8 +97,34 @@ Para exportar uma versão que abre diretamente no navegador:
 npm run build:portable
 ```
 
-O arquivo gerado é `downloads/Arena-Quiz.html`. Transfira esse arquivo para seu computador Windows e abra-o com dois cliques no Microsoft Edge ou Google Chrome. Ele contém os estilos, ícones, ilustração e código do jogo, e funciona sem servidor, sem `localhost` e sem conexão à internet. Somente os links opcionais de referências das questões precisam de internet.
+O arquivo gerado é `downloads/Arena-Quiz.html`. Transfira esse arquivo para seu computador Windows e abra-o com dois cliques no Microsoft Edge ou Google Chrome. Ele contém os estilos, ícones, ilustração e código do jogo, e funciona sem servidor, sem `localhost` e sem conexão à internet. O HTML portátil permite criar e salvar categorias, mas **não consegue pesquisar ou gerar questões por IA**: essa etapa exige usar o endereço da versão online hospedada com o servidor e a chave configurados. Links opcionais de referências também precisam de internet.
 
 Se receber o pacote ZIP, clique com o botão direito → **Extrair Tudo…** e abra o `Arena-Quiz.html` extraído. Não abra o jogo dentro do visualizador do ZIP. Perfil e resultados ficam no armazenamento local do navegador; mantenha o arquivo no mesmo local e use o mesmo navegador. O suporte a armazenamento em arquivos locais depende do navegador e das suas configurações. As limitações de demonstração descritas acima permanecem iguais.
 
 Para validar o HTML autônomo: `ARENA_CHROMIUM_PATH=/usr/bin/chromium npm run test:portable` (ou omita a variável se o Playwright tiver seu próprio Chromium instalado). O teste abre o conteúdo do HTML por uma resposta em memória com o navegador offline, percorre cadastro, duelo e histórico, e verifica que nenhum recurso externo foi solicitado. Essa modalidade de teste é usada porque a política administrativa do Chromium deste ambiente bloqueia navegações `file://`; a abertura por dois cliques no Windows não foi executada neste host Linux.
+
+## Pesquisa e geração automáticas de categorias
+
+Na versão online, **Criar categoria** inicia este fluxo sem um segundo clique:
+
+1. A categoria aparece imediatamente e fica salva no navegador.
+2. O agente usa a Responses API da OpenAI com a ferramenta `web_search` e acesso web ativo para pesquisar o tema, planejar o escopo e escrever 12 questões (4 por nível).
+3. Outra chamada, com instruções de validador independente e sem reutilizar a conversa do autor, pesquisa as fontes e verifica cada questão, gabarito, alternativas, nível e duplicatas semânticas.
+4. O serviço exige uma pesquisa concluída nas duas etapas e confere se as URLs das questões aprovadas apareceram nas fontes consultadas. Falhas e referências não verificadas bloqueiam a liberação.
+5. Com pelo menos 3 aprovadas em cada nível, as perguntas são salvas e a categoria passa automaticamente a **Pronta para duelos**. Durante o processamento, a interface mostra os estados de pesquisa e validação.
+
+Isso não é instantâneo: criar o nome é imediato, mas pesquisar e validar depende da latência e da disponibilidade da API. Se a validação não produzir o mínimo, a categoria continua bloqueada e permite tentar novamente, sem inventar questões ou repetir as já vistas. A conferência automática não substitui revisão editorial humana.
+
+### Configuração segura do servidor
+
+- `QUIZ_AI_API_KEY`: chave própria da API da OpenAI, inserida nas configurações seguras do ambiente ou injetada como variável do servidor. **Nunca coloque a chave no HTML, no código do frontend, em um arquivo compartilhado ou no chat.** O serviço se conecta somente a `https://api.openai.com/v1/responses`. A assinatura do ChatGPT não fornece automaticamente créditos de API.
+- `QUIZ_AI_MODEL`: modelo com pesquisa web e saída estruturada; padrão `gpt-4.1`. A disponibilidade e as cotas precisam ser confirmadas com a conta da API.
+- `QUIZ_MAX_DAILY_GENERATIONS`: limite operacional de tentativas por dia; padrão 20. Cada tentativa usa uma chamada de autoria e outra de validação, com custos cobrados pelo provedor.
+- `QUIZ_DATA_DIR`: pasta persistente; padrão `.arena-data`, ignorada pelo Git. Não há segredo nos dados de perguntas. Preserve essa pasta em reinícios/deploys.
+- `PORT`: porta do servidor; padrão 3001. Os proxies HTTPS e a cadeia de certificados do ambiente são respeitados pelo cliente HTTP; não é necessário desabilitar a verificação TLS.
+
+`GET /api/health` retorna apenas estado do serviço e presença da configuração, nunca valores de credenciais. `POST /api/categories` recebe `{id, name}` e inicia uma tarefa; `GET /api/categories/:id` retorna o progresso e somente libera as questões após a aprovação. Solicitações repetidas com o mesmo identificador reaproveitam a tarefa. Um reinício durante a geração exige nova tentativa para evitar cobranças automáticas duplicadas. A fila e os resultados são persistidos em arquivo local; a implantação suporta **uma única instância de servidor** nesta versão.
+
+O serviço de categorias está preparado, mas **a pesquisa real ainda não foi validada com a OpenAI**, pois nenhuma chave foi fornecida neste ambiente. Os testes usam respostas controladas: verificam contratos, pesquisa obrigatória, fontes, rejeições, ativação, persistência, erros e integração com o jogo, sem cobrar uma API real. O build e o HTML offline não estabelecem que uma conta ou um modelo esteja autorizado na OpenAI.
+
+Antes de disponibilizar publicamente um serviço com créditos reais, ainda é necessário autenticar usuários e autorizar a criação de categorias. O login permanece demonstrativo. O limite diário não substitui autenticação. A geração online também não torna o duelo multiplayer autoritativo: as perguntas aprovadas ainda são entregues ao simulador local, incluindo gabaritos, e esse transporte precisa ser substituído no backend de duelos para produção.

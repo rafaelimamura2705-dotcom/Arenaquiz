@@ -5,10 +5,10 @@ import { DemoNote, Icon, SectionTitle } from "./components/ui";
 import { Matchmaking, Ready } from "./components/Matchmaking";
 import { Arena } from "./components/Arena";
 import {
-  categories,
+  categories as demoCategories,
   illustrativeHistory,
   opponent,
-  questions,
+  questions as demoQuestions,
 } from "./data/demo";
 import {
   createDuel,
@@ -20,6 +20,14 @@ import {
   total,
 } from "./domain/engine";
 import type { Answer, Duel, Result, Screen } from "./domain/types";
+import {
+  canPlay,
+  generationLabel,
+  researchStatus,
+  startResearch,
+  type GeneratedCategory,
+} from "./services/generation";
+import { customCategory, normalizeCategoryName } from "./domain/categories";
 import { loadData, STORAGE_KEY } from "./services/storage";
 const publicScreens: Screen[] = [
   "home",
@@ -58,7 +66,6 @@ export default function App() {
     [blocked, setBlocked] = useState(""),
     [priority, setPriority] = useState(false),
     [modal, setModal] = useState(false),
-    [requested, setRequested] = useState<string[]>([]),
     [authTab, setAuthTab] = useState<"login" | "signup">("signup"),
     [rankingCategory, setRankingCategory] = useState("all"),
     [period, setPeriod] = useState("week");
@@ -66,6 +73,122 @@ export default function App() {
   const contentRef = useRef<HTMLElement>(null);
   const navGuard = useRef({ screen, duel });
   navGuard.current = { screen, duel };
+  const categories = [...demoCategories, ...data.customCategories];
+  const questions = [...demoQuestions, ...data.generatedQuestions];
+  const pendingIds = data.customCategories
+    .filter((c) =>
+      ["queued", "researching", "validating"].includes(c.status ?? ""),
+    )
+    .map((c) => c.id)
+    .join(",");
+  const inFlight = useRef(new Set<string>());
+  function applyResearch(localId: string, job: GeneratedCategory) {
+    setData((prev) => {
+      const bank = job.status === "ready" ? job.questions : [];
+      const valid =
+        job.status !== "ready" ||
+        (job.id === localId &&
+          LEVELS.every(
+            (level) =>
+              bank.filter((q) => q.categoryId === localId && q.level === level)
+                .length >= 3,
+          ));
+      return {
+        ...prev,
+        customCategories: prev.customCategories.map((c) =>
+          c.id === localId
+            ? {
+                ...c,
+                status: valid ? job.status : "error",
+                generationMessage: valid
+                  ? job.message
+                  : "A categoria não tem perguntas aprovadas suficientes.",
+                scope: job.scope,
+                validatedAt: job.validatedAt,
+              }
+            : c,
+        ),
+        generatedQuestions:
+          job.status === "ready" && valid
+            ? [
+                ...prev.generatedQuestions.filter(
+                  (q) => q.categoryId !== localId,
+                ),
+                ...bank,
+              ]
+            : prev.generatedQuestions,
+      };
+    });
+  }
+  function failResearch(id: string, message: string) {
+    setData((prev) => ({
+      ...prev,
+      customCategories: prev.customCategories.map((c) =>
+        c.id === id ? { ...c, status: "error", generationMessage: message } : c,
+      ),
+    }));
+  }
+  async function generateQuestions(category: (typeof categories)[number]) {
+    if (inFlight.current.has(category.id)) return;
+    if (location.protocol === "file:" || !navigator.onLine) {
+      failResearch(
+        category.id,
+        "A categoria foi criada. A pesquisa por IA precisa da versão online conectada ao servidor; ela não funciona no HTML offline.",
+      );
+      return;
+    }
+    inFlight.current.add(category.id);
+    setData((prev) => ({
+      ...prev,
+      customCategories: prev.customCategories.map((c) =>
+        c.id === category.id
+          ? {
+              ...c,
+              status: "queued",
+              generationMessage: "Iniciando a pesquisa sobre o tema…",
+            }
+          : c,
+      ),
+    }));
+    try {
+      applyResearch(category.id, await startResearch(category));
+    } catch (error) {
+      failResearch(
+        category.id,
+        error instanceof Error
+          ? error.message
+          : "Não foi possível iniciar a pesquisa.",
+      );
+    } finally {
+      inFlight.current.delete(category.id);
+    }
+  }
+  useEffect(() => {
+    if (!pendingIds) return;
+    let cancelled = false;
+    const poll = async () => {
+      for (const id of pendingIds.split(",")) {
+        if (inFlight.current.has(id)) continue;
+        try {
+          const job = await researchStatus(id);
+          if (!cancelled) applyResearch(id, job);
+        } catch (error) {
+          if (!cancelled)
+            failResearch(
+              id,
+              error instanceof Error
+                ? error.message
+                : "A pesquisa foi interrompida.",
+            );
+        }
+      }
+    };
+    const timer = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [pendingIds]);
   const category = categories.find((c) => c.id === categoryId)!;
   const visibleCategories = categories.filter((c) =>
     normalizeSearch(`${c.name} ${c.description}`).includes(
@@ -157,6 +280,13 @@ export default function App() {
     go("categories");
   }
   function startQueue() {
+    if (!canPlay(category)) {
+      setBlocked(
+        category.generationMessage ||
+          "O agente precisa concluir a pesquisa e aprovar pelo menos 9 questões, 3 por nível, para habilitar esta categoria.",
+      );
+      return;
+    }
     const bank = questions.filter((q) => q.categoryId === categoryId);
     const eligible = LEVELS.map((level) =>
       eligibleQuestions(
@@ -170,7 +300,7 @@ export default function App() {
     );
     if (eligible.some((list) => list.length < 3)) {
       setBlocked(
-        "O estoque de perguntas inéditas desta categoria acabou para este par. Uma nova geração validada seria necessária. A IA ainda não está conectada nesta demonstração; explore outra categoria.",
+        "O estoque de perguntas inéditas desta categoria acabou para este par. Este duelo precisa de novas perguntas aprovadas; não vamos repetir as já vistas. Explore outra categoria enquanto a reposição não estiver disponível.",
       );
       return;
     }
@@ -707,7 +837,7 @@ export default function App() {
               </label>
               <button className="btn secondary" onClick={() => setModal(true)}>
                 <Icon name="plus" size={18} />
-                Sugerir categoria
+                Criar categoria
               </button>
             </div>
             <div className="category-grid">
@@ -732,17 +862,23 @@ export default function App() {
                   </span>
                   <span className="category-bottom">
                     <span>
-                      {
-                        questions.filter(
-                          (q) =>
-                            q.categoryId === c.id &&
-                            !new Set([
-                              ...(data.seen[data.player.id] ?? []),
-                              ...(data.seen[opponent.id] ?? []),
-                            ]).has(q.id),
-                        ).length
-                      }{" "}
-                      inéditas · 3 níveis
+                      {!canPlay(c) ? (
+                        generationLabel(c)
+                      ) : (
+                        <>
+                          {
+                            questions.filter(
+                              (q) =>
+                                q.categoryId === c.id &&
+                                !new Set([
+                                  ...(data.seen[data.player.id] ?? []),
+                                  ...(data.seen[opponent.id] ?? []),
+                                ]).has(q.id),
+                            ).length
+                          }{" "}
+                          inéditas · 3 níveis
+                        </>
+                      )}
                     </span>
                     <Icon
                       name={categoryId === c.id ? "success" : "arrow"}
@@ -754,23 +890,32 @@ export default function App() {
             </div>
             {visibleCategories.length === 0 && search && (
               <p className="fine-print">
-                Não encontrou seu tema? Você pode sugerir uma categoria. A
-                geração por IA é uma integração futura.
+                Não encontrou seu tema? Crie uma categoria agora, digitando
+                apenas o nome.
               </p>
             )}
-            {requested.length > 0 && (
-              <div className="panel pending-categories">
-                <strong>Sugestões desta sessão</strong>
-                {requested.map((name) => (
-                  <p key={name}>
-                    {name}
-                    <span className="pill">Pendente · IA não conectada</span>
+            {category.status && (
+              <div className="notice" role="status" aria-live="polite">
+                <Icon
+                  name={category.status === "ready" ? "success" : "clock"}
+                />
+                <div>
+                  <strong>{generationLabel(category)}</strong>
+                  <p>
+                    {category.generationMessage ||
+                      "O agente pesquisa o tema, cria questões e confere as fontes antes de liberar os duelos."}
                   </p>
-                ))}
-                <small>
-                  Uma categoria real só será ativada com pelo menos 9 questões
-                  aprovadas, 3 por nível.
-                </small>
+                  {(category.status === "error" ||
+                    category.status === "awaiting-questions") && (
+                    <button
+                      className="text-button"
+                      onClick={() => generateQuestions(category)}
+                    >
+                      Pesquisar e gerar perguntas{" "}
+                      <Icon name="refresh" size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
             {blocked && (
@@ -786,18 +931,22 @@ export default function App() {
                 </span>
                 <div>
                   <strong>{category.name}</strong>
-                  <small>1 vs 1 · Melhor de 3 · Adversária simulada</small>
+                  <small>
+                    {canPlay(category)
+                      ? "1 vs 1 · Melhor de 3 · Adversária simulada"
+                      : generationLabel(category)}
+                  </small>
                 </div>
               </div>
               <button className="btn primary" onClick={startQueue}>
-                <Icon name="swords" />
-                Buscar duelo
+                <Icon name={!canPlay(category) ? "clock" : "swords"} />
+                {canPlay(category) ? "Buscar duelo" : "Ver disponibilidade"}
                 <Icon name="arrow" size={17} />
               </button>
             </div>
             <DemoNote>
-              Banco demonstrativo com referências editoriais. Não passou por um
-              validador independente; a IA ainda não está conectada.
+              As seis categorias iniciais usam dados demonstrativos. Novos temas
+              dependem do serviço online de pesquisa e validação por IA.
             </DemoNote>
           </>
         )}
@@ -1295,14 +1444,37 @@ export default function App() {
       {modal && (
         <CategoryModal
           onClose={() => setModal(false)}
-          onRequest={(name) => {
-            setRequested((prev) =>
-              prev.includes(name) ? prev : [...prev, name],
+          onCreate={(input) => {
+            const name = input.trim().replace(/\s+/g, " ");
+            if (name.length < 3 || name.length > 60)
+              return "Use um nome com 3 a 60 caracteres.";
+            const existing = categories.find(
+              (category) =>
+                normalizeCategoryName(category.name) ===
+                normalizeCategoryName(name),
             );
+            if (existing) {
+              setCategoryId(existing.id);
+              setToast("Essa categoria já existe. Selecionamos ela para você.");
+            } else {
+              const category = customCategory(
+                name,
+                `custom-${crypto.randomUUID()}`,
+              );
+              setData((prev) => ({
+                ...prev,
+                customCategories: [...prev.customCategories, category],
+              }));
+              setCategoryId(category.id);
+              void generateQuestions(category);
+              setToast(
+                "Categoria criada! Acompanhe a preparação das questões na lista.",
+              );
+            }
+            setSearch("");
+            setBlocked("");
             setModal(false);
-            setToast(
-              "Sugestão anotada nesta sessão. Geração e validação por IA ainda não estão conectadas.",
-            );
+            return null;
           }}
         />
       )}
@@ -1343,12 +1515,13 @@ function Empty({ onPlay }: { onPlay: () => void }) {
 }
 function CategoryModal({
   onClose,
-  onRequest,
+  onCreate,
 }: {
   onClose: () => void;
-  onRequest: (name: string) => void;
+  onCreate: (name: string) => string | null;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [error, setError] = useState("");
   useEffect(() => {
     ref.current?.showModal();
   }, []);
@@ -1370,7 +1543,9 @@ function CategoryModal({
         </button>
       </div>
       <h2>Toda curiosidade tem espaço.</h2>
-      <p>Qual tema você gostaria de levar para a arena?</p>
+      <p>
+        Dê um nome ao seu novo campo de batalha. A categoria aparece na hora.
+      </p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1378,7 +1553,7 @@ function CategoryModal({
             .get("category")
             ?.toString()
             .trim();
-          if (name) onRequest(name);
+          setError(onCreate(name ?? "") ?? "");
         }}
       >
         <label>
@@ -1390,17 +1565,27 @@ function CategoryModal({
             minLength={3}
             maxLength={60}
             autoFocus
+            aria-invalid={!!error}
+            aria-describedby={error ? "category-error" : undefined}
+            onChange={() => setError("")}
           />
         </label>
+        {error && (
+          <p id="category-error" role="alert" className="fine-print">
+            {error}
+          </p>
+        )}
         <div className="notice">
           <Icon name="help" />
           <p>
-            A IA ainda não está conectada. Sua sugestão fica pendente nesta
-            sessão. Nenhuma pergunta será gerada ou validada automaticamente.
+            A categoria é criada na hora. Na versão online, o agente inicia a
+            pesquisa, gera as questões e um validador separado confere fontes e
+            respostas. Os duelos são liberados automaticamente com pelo menos 3
+            questões aprovadas em cada nível.
           </p>
         </div>
         <button className="btn primary big">
-          Registrar sugestão
+          Criar categoria
           <Icon name="plus" size={17} />
         </button>
       </form>

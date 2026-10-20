@@ -23,6 +23,13 @@ try {
  await page.getByLabel('E-mail fictício').fill('demo@example.com');
  await page.getByLabel('Senha fictícia').fill('apenas-demo');
  await page.getByRole('button',{name:'Começar minha jornada'}).click();
+ await page.getByRole('button',{name:'Criar categoria'}).click();
+ await page.getByLabel('Nome da categoria',{exact:true}).fill('Mitologia offline');
+ await page.getByRole('dialog').getByRole('button',{name:'Criar categoria'}).click();
+ await page.locator('.category-card').filter({hasText:'Mitologia offline'}).waitFor();
+ await page.reload();
+ await page.locator('.category-card').filter({hasText:'Mitologia offline'}).waitFor();
+ await page.locator('.category-card').filter({hasText:'Viagem no tempo'}).click();
  await page.getByRole('button',{name:'Buscar duelo'}).click();
  await page.getByRole('button',{name:'Estou pronto',exact:true}).click();
  await page.locator('.question-card').waitFor();
@@ -52,6 +59,6 @@ try {
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Overflow horizontal no celular.');
  assert.deepEqual(errors,[],'Erros JavaScript na versão portátil.');
  assert.deepEqual(externalRequests,[],'A versão portátil solicitou recursos externos.');
- console.log(`PASSOU: HTML autônomo em Chromium offline, servido em memória; cadastro local, duelo com ${seen.size} perguntas sem repetição, resultado, histórico após recarregar, navegação e layout móvel. Zero requisições de rede e zero erros JavaScript.`);
+ console.log(`PASSOU: HTML autônomo em Chromium offline, servido em memória; cadastro e criação persistente de categoria, duelo com ${seen.size} perguntas sem repetição, resultado, histórico após recarregar, navegação e layout móvel. Zero requisições de rede e zero erros JavaScript.`);
  await context.close();
 } finally { await browser.close(); }
